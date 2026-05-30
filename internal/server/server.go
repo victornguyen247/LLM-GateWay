@@ -47,7 +47,7 @@ func (s *Server) registerRoutes(){
 	})
 
 	// forward Gemini /v1beta/* endpoints (generateContent, etc.)
-	s.mux.HandleFunc("/v1beta/", s.proxy.Handle)
+	s.mux.HandleFunc("/v1/chat/completions", s.proxy.Handle)
 }
 
 // Function to start the server

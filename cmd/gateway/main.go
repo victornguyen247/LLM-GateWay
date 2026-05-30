@@ -21,7 +21,7 @@ func main() {
 	s := server.NewServer(
 		os.Getenv("GATEWAY_LISTEN"), 
 		logger, 
-		proxy.NewGeminiProxy(os.Getenv("UPSTREAM_URL"), os.Getenv("GEMINI_API_KEY"), logger))
+		proxy.NewOpenAIProxy(os.Getenv("OPENAI_UPSTREAM_URL"), os.Getenv("OPENAI_API_KEY"), logger))
 
 	if err := s.Run(); err != nil {
 		logger.Error("Failed to start server", "error", err)
