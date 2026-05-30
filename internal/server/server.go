@@ -46,8 +46,8 @@ func (s *Server) registerRoutes(){
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	// register the chat completions route
-	s.mux.HandleFunc("/v1/chat/completions", s.proxy.Handle)
+	// forward Gemini /v1beta/* endpoints (generateContent, etc.)
+	s.mux.HandleFunc("/v1beta/", s.proxy.Handle)
 }
 
 // Function to start the server
