@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 	"github.com/victornguyen247/LLM-GateWay/internal/proxy"
+	"github.com/victornguyen247/LLM-GateWay/internal/ratelimit"
 )
 
 type Server struct {
@@ -17,10 +18,12 @@ type Server struct {
 	mux *http.ServeMux
 	// proxy to forward the requests to the upstream
 	proxy proxy.Proxy
+	// rate limiter to limit the requests
+	mgr *ratelimit.Manager
 }
 
 // Function to create a new server
-func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy) *Server {
+func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy, mgr *ratelimit.Manager) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
@@ -34,6 +37,7 @@ func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy) *Server {
 		logger: logger,
 		mux: mux,
 		proxy: proxy,
+		mgr: mgr,
 	}
 	return s
 }
@@ -47,7 +51,7 @@ func (s *Server) registerRoutes(){
 	})
 
 	// forward Gemini /v1beta/* endpoints (generateContent, etc.)
-	s.mux.HandleFunc("/v1/chat/completions", s.proxy.Handle)
+	s.mux.Handle("/v1/chat/completions", RateLimitMiddleware(s.mgr)(http.HandlerFunc(s.proxy.Handle)))
 }
 
 // Function to start the server
