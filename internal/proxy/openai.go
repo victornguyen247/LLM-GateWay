@@ -88,7 +88,7 @@ func (p *OpenAIProxy) Handle(w http.ResponseWriter, r *http.Request) {
 	// Log the upstream response
 	logger.Info("upstream response received", 
 				slog.Int("upstream_status", resp.StatusCode), 
-				slog.Duration("duration", time.Since(startTime)), 
+				slog.Int64("duration", time.Since(startTime).Milliseconds()), 
 				slog.Int64("response_size", resp.ContentLength),
 				)
 

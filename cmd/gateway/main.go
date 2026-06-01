@@ -6,7 +6,12 @@ import (
 	"github.com/victornguyen247/LLM-GateWay/internal/server"
 	"github.com/victornguyen247/LLM-GateWay/internal/proxy"
 	"github.com/victornguyen247/LLM-GateWay/internal/ratelimit"
+	"github.com/victornguyen247/LLM-GateWay/internal/cache"
 	"strconv"
+	"time"
+	"context"
+	"syscall"
+	"os/signal"
 )
 
 func main() {
@@ -29,15 +34,45 @@ func main() {
         os.Exit(1)
 	}
 
+	// create the cache
+	size, err := strconv.Atoi(os.Getenv("CACHE_SIZE"))
+	if err != nil {
+		logger.Error("Failed to parse CACHE_SIZE", "error", err)
+		os.Exit(1)
+	}
+	ttl, err := time.ParseDuration(os.Getenv("CACHE_TTL"))
+	if err != nil {
+		logger.Error("Failed to parse CACHE_TTL", "error", err)
+		os.Exit(1)
+	}
+	cache, err := cache.NewCache( size, ttl)
+	if err != nil || cache == nil {
+		logger.Error("Failed to create cache", "error", err)
+		os.Exit(1)
+	}
+
 	// create the server
 	s := server.NewServer(
 		os.Getenv("GATEWAY_LISTEN"), 
 		logger, 
 		proxy.NewOpenAIProxy(os.Getenv("OPENAI_UPSTREAM_URL"), os.Getenv("OPENAI_API_KEY"), logger),
-		ratelimit.NewManager(rps, int(burst)))
+		ratelimit.NewManager(rps, int(burst)),
+		cache)
 
-	if err := s.Run(); err != nil {
-		logger.Error("Failed to start server", "error", err)
-		os.Exit(1)
-	}
+	// create the context and stop function
+    ctx , stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+    // start the server
+	go func() {
+		if err := s.Run(); err != nil{
+			logger.Error("Failed to start server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+    // wait for the signal
+	<-ctx.Done()
+	s.Shutdown(ctx)
+	logger.Info("gracefully shutting down server")
+	os.Exit(0)
 }

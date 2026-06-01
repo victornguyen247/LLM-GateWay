@@ -6,25 +6,28 @@ import (
 	"errors"
 	"time"
 	"github.com/hashicorp/golang-lru/v2"
+	"net/http"
 )
 
 // Entry is a struct that represents an entry in the cache
-type entry struct {
-	body []byte // the body of the entry
-	contentType string // the content type of the entry
-	expiresAt time.Time // the expiration time of the entry
+type Entry struct {
+	Body []byte // the body of the entry
+	ContentType string // the content type of the entry
+	ExpiresAt time.Time // the expiration time of the entry
+	Status int // the status code of the entry
+	Headers http.Header // the headers of the entry
 }
 
 // Cache is a thread-safe in-memory cache
 type Cache struct {
-	lru *lru.Cache[string,entry] // lru cache to store the entries
+	lru *lru.Cache[string,Entry] // lru cache to store the entries
 	ttl time.Duration // TTL for the entries
 }
 
 // NewCache creates a new cache
 func NewCache(size int, ttl time.Duration) (*Cache, error) {
 	// create a new lru cache
-	lru, err := lru.New[string,entry](size)
+	lru, err := lru.New[string,Entry](size)
 	if err != nil {
 		return nil, err
 	}
@@ -36,24 +39,24 @@ func NewCache(size int, ttl time.Duration) (*Cache, error) {
 }
 
 // Get retrieves an entry from the cache
-func (c *Cache) Get(key string) (entry, bool) {
+func (c *Cache) Get(key string) (Entry, bool) {
 	if val, exists := c.lru.Get(key); exists {
 		// check if the entry is expired
-		if time.Now().After(val.expiresAt) {
+		if time.Now().After(val.ExpiresAt) {
 			c.lru.Remove(key)
-			return entry{}, false
+			return Entry{}, false
 		}
 		return val, true
 	}
-	return entry{}, false
+	return Entry{}, false
 }
 
 // Set adds an entry to the cache
-func (c *Cache) Set(key string, entry entry) error {
+func (c *Cache) Set(key string, entry Entry) error {
 	// check if the TTL is valid
 	if c.ttl > 0 {
 		// add the entry to the cache
-		entry.expiresAt = time.Now().Add(c.ttl)
+		entry.ExpiresAt = time.Now().Add(c.ttl)
 		if ok := c.lru.Add(key, entry); !ok {
 			return errors.New("failed to add to cache")
 		}
@@ -64,7 +67,7 @@ func (c *Cache) Set(key string, entry entry) error {
 }
 
 // HashRequest hashes the request body using SHA-256 and returns the hex encoded string
-func hashRequest(body []byte) string {
+func HashRequest(body []byte) string {
 	// create a new SHA-256 hash
 	hash := sha256.New()
 	// write the body to the hash
