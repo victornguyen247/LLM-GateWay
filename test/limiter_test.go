@@ -2,6 +2,13 @@
 // -H 'Content-Type: application/json' \
 // -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"say this is a test"}]}'
 
+/*
+Invoke-RestMethod -Uri "http://localhost:8080/v1/chat/completions" `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body '{ "model": "gpt-4o-mini", "messages": [{"role": "user", "content": "say this is a test"}] }'
+*/
+
 package main
 
 import (

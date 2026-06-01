@@ -111,8 +111,13 @@ go run ./cmd/gateway
 ```bash
 export OPENAI_API_KEY=sk-...
 export GATEWAY_LISTEN=:8080
-go run ./cmd/gateway
+go run ./
 ```
+
+## Run with Docker
+**Build**: ```docker build -t llm-gateway:v0.1 .```
+**Run**: ```docker run --rm -p 8080:8080 -e OPENAI_API_KEY=$OPENAI_API_KEY llm-gateway:v0.1```
+note: If it crashes immediately, most likely a missing env var — check your config load code
 
 ## License
 
