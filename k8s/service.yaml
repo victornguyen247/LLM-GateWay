@@ -1,0 +1,16 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: llm-gateway
+  labels:
+    app: llm-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-gateway
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+
