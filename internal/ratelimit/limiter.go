@@ -13,14 +13,8 @@ type Manager struct {
 	burst int // burst limit
 }
 
-// NewManager creates a new rate limiter manager
-func NewManager(rps float64, burst int) *Manager {
-	return &Manager{
-		mu: sync.Mutex{},
-		limiters: make(map[string]*rate.Limiter),
-		rps: rps,
-		burst: burst,
-	}
+type Limiter interface {
+	Allow(ctx context.Context, key string) (allowed bool, err error)
 }
 
 // Get returns a rate limiter for the given key or creates a new one if it doesn't exist
@@ -32,4 +26,8 @@ func (m *Manager) Get(key string) *rate.Limiter {
 		return m.limiters[key]
 	}
 	return m.limiters[key]
+}
+
+func (m *Manager) Allow(ctx context.Context, key string) (allowed bool, err error) {
+	return m.Get(key).Allow(ctx), nil
 }

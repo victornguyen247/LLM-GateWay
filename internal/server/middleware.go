@@ -28,11 +28,21 @@ func (w *bufWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-func RateLimitMiddleware(mgr *ratelimit.Manager) func(http.Handler) http.Handler {
+func RateLimitMiddleware(mgr Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
-			limiter := mgr.Get(r.Header.Get("X-User-ID"))
-			if !limiter.Allow() {
+			key := r.Header.Get("Authorization")
+			if key == "" {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			allowed,err := mgr.Allow(r.Context(), key)
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !allowed {
 				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 				return
 			}
