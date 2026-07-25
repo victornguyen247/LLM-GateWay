@@ -6,6 +6,10 @@ import (
 	"sync"
 )
 
+type Limiter interface {
+	Allow(ctx context.Context, key string) (allowed bool, err error)
+}
+
 // Manager is a rate limiter for the gateway
 type Manager struct {
 	mu sync.Mutex // protects the limiters map
@@ -20,10 +24,6 @@ func NewManager(rps float64, burst int) *Manager {
 		rps: rps,
 		burst: burst,
 	}
-}
-
-type Limiter interface {
-	Allow(ctx context.Context, key string) (allowed bool, err error)
 }
 
 // Get returns a rate limiter for the given key or creates a new one if it doesn't exist
