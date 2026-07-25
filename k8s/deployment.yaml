@@ -29,8 +29,6 @@ spec:
 
         env:
         - name: OPENAI_API_KEY
-        
-        env:
         - name: GATEWAY_LISTEN
           value: "8080"
             

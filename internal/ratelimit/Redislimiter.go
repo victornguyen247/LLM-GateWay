@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"context"
 	"time"
+	"fmt"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -40,33 +41,34 @@ type RedisLimiter struct {
 	client *redis.Client
 	window time.Duration
 	limit  int
-	script *redis.NewScript(`
-	-- KEYS[1] = current window key
-	-- KEYS[2] = previous window key
-	-- ARGV[1] = window size in seconds
-	-- ARGV[2] = limit
-	-- ARGV[3] = elapsed in current window
-	local currentCount = redis.call("INCR", KEYS[1])
-	if currentCount == 1 then
-		redis.call("EXPIRE", KEYS[1], ARGV[1] * 2) -- 2x window size: key must survive as both "current" and, one bucket later, "previous" window, regardless of when within its own bucket it was created.
-	end
-	local previousCount = tonumber(redis.call("GET", KEYS[2]) or '0')
-	local weight = currentCount + previousCount * (1 - ARGV[3] / ARGV[1])
-	if weight > tonumber(ARGV[2]) then
-		return 0
-	else
-		return 1
-	end
-	`)
+	script *redis.Script
 }
+
+var slidingWindowScript = redis.NewScript(`
+-- KEYS[1] = current window key
+		-- KEYS[2] = previous window key
+		-- ARGV[1] = window size in seconds
+		-- ARGV[2] = limit
+		-- ARGV[3] = elapsed in current window
+		local currentCount = redis.call("INCR", KEYS[1])
+		if currentCount == 1 then
+			redis.call("EXPIRE", KEYS[1], ARGV[1] * 2) -- 2x window size: key must survive as both "current" and, one bucket later, "previous" window, regardless of when within its own bucket it was created.
+		end
+		local previousCount = tonumber(redis.call("GET", KEYS[2]) or '0')
+		local weight = currentCount + previousCount * (1 - ARGV[3] / ARGV[1])
+		if weight > tonumber(ARGV[2]) then
+			return 0
+		else
+			return 1
+		end
+	`)
 
 func NewRedisLimiter(client *redis.Client, window time.Duration, limit int) *RedisLimiter {
 	return &RedisLimiter{
 		client: client,
 		window: window,
 		limit:  limit,
-		script: script,
-	}
+		script: slidingWindowScript}
 }
 
 func (l *RedisLimiter) Allow(ctx context.Context, key string) (bool, error) {
@@ -80,8 +82,7 @@ func (l *RedisLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	result, err := l.script.Run(ctx, l.client, 
 		[]string{
 		fmt.Sprintf("ratelimit:%s:%d", key, currentWindowStart),
-		fmt.Sprintf("ratelimit:%s:%d", key, previousWindowStart)
-		},
+		fmt.Sprintf("ratelimit:%s:%d", key, previousWindowStart)},
 		[]interface{}{
 			windowSize,
 			l.limit,

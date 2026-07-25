@@ -39,6 +39,7 @@ func RateLimitMiddleware(mgr Limiter) func(http.Handler) http.Handler {
 
 			allowed,err := mgr.Allow(r.Context(), key)
 			if err != nil {
+				r.logger.Error("failed to allow request", "error", err)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -92,7 +93,7 @@ func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
 			if bufw.status >= 200 && bufw.status < 300 {
 				c.Set(key, cache.Entry{
 					Body: bufw.buf.Bytes(),
-					ContentType: r.Header.Get("Content-Type"),
+					ContentType: bufw.Header().Get("Content-Type"),
 					Status: bufw.status,
 					Headers: bufw.Header().Clone(),
 				})

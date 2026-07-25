@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"context"
 	"golang.org/x/time/rate"
 	"sync"
 )
@@ -11,6 +12,14 @@ type Manager struct {
 	limiters map[string]*rate.Limiter // map of key to rate limiter
 	rps float64 // requests per second
 	burst int // burst limit
+}
+
+func NewManager(rps float64, burst int) *Manager {
+	return &Manager{
+		limiters: make(map[string]*rate.Limiter),
+		rps: rps,
+		burst: burst,
+	}
 }
 
 type Limiter interface {
@@ -29,5 +38,5 @@ func (m *Manager) Get(key string) *rate.Limiter {
 }
 
 func (m *Manager) Allow(ctx context.Context, key string) (allowed bool, err error) {
-	return m.Get(key).Allow(ctx), nil
+	return m.Get(key).Allow(), nil
 }
