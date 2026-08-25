@@ -39,16 +39,16 @@ func NewCache(size int, ttl time.Duration) (*Cache, error) {
 }
 
 // Get retrieves an entry from the cache
-func (c *Cache) Get(key string) (Entry, bool) {
+func (c *Cache) Get(key string) (Entry, bool, error) {
 	if val, exists := c.lru.Get(key); exists {
 		// check if the entry is expired
 		if time.Now().After(val.ExpiresAt) {
 			c.lru.Remove(key)
-			return Entry{}, false
+			return Entry{}, false, errors.New("entry expired")
 		}
-		return val, true
+		return val, true, nil
 	}
-	return Entry{}, false
+	return Entry{}, false, errors.New("entry not found")
 }
 
 // Set adds an entry to the cache
