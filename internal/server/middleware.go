@@ -3,10 +3,10 @@ package server
 import (
 	"bytes"
 	"net/http"
-
+	"io"
+	"log/slog"
 	"github.com/victornguyen247/LLM-GateWay/internal/ratelimit"
 	"github.com/victornguyen247/LLM-GateWay/internal/cache"
-	"io"
 )
 
 type bufWriter struct {
@@ -28,7 +28,7 @@ func (w *bufWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-func RateLimitMiddleware(mgr Limiter) func(http.Handler) http.Handler {
+func RateLimitMiddleware(mgr ratelimit.Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
 			key := r.Header.Get("Authorization")
@@ -39,6 +39,11 @@ func RateLimitMiddleware(mgr Limiter) func(http.Handler) http.Handler {
 
 			allowed,err := mgr.Allow(r.Context(), key)
 			if err != nil {
+				logger := LoggerFromContext(r.Context())
+				logger.Warn("rate limiter backend error; failing open",
+					slog.Any("error", err),
+					slog.Bool("failing open", true),
+				)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -92,7 +97,7 @@ func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
 			if bufw.status >= 200 && bufw.status < 300 {
 				c.Set(key, cache.Entry{
 					Body: bufw.buf.Bytes(),
-					ContentType: r.Header.Get("Content-Type"),
+					ContentType: bufw.Header().Get("Content-Type"),
 					Status: bufw.status,
 					Headers: bufw.Header().Clone(),
 				})
