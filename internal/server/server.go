@@ -21,13 +21,13 @@ type Server struct {
 	// proxy to forward the requests to the upstream
 	proxy proxy.Proxy
 	// rate limiter to limit the requests
-	mgr *ratelimit.Manager
+	mgr ratelimit.Limiter
 	// cache to cache the responses
 	cache *cache.Cache
 }
 
 // Function to create a new server
-func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy, mgr *ratelimit.Manager, c *cache.Cache) *Server {
+func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy, mgr ratelimit.Limiter, c *cache.Cache) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
