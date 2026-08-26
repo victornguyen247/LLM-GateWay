@@ -78,7 +78,6 @@ func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
 			// check if the entry is in the cache
 			entry, found := c.Get(key)
 			if found { // cache hit
-				w.WriteHeader(entry.Status)	// write the status code to the client
 				w.Header().Set("Content-Type", entry.ContentType)
 				w.Header().Set("X-Cache", "HIT") // set the cache header to hit
 				for key, values := range entry.Headers {
@@ -86,6 +85,7 @@ func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
 						w.Header().Add(key, value)
 					}
 				}
+				w.WriteHeader(entry.Status)	// write the status code to the client
 				w.Write(entry.Body)
 				return
 			}

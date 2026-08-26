@@ -45,7 +45,7 @@ type RedisLimiter struct {
 }
 
 var slidingWindowScript = redis.NewScript(`
--- KEYS[1] = current window key
+        -- KEYS[1] = current window key
 		-- KEYS[2] = previous window key
 		-- ARGV[1] = window size in seconds
 		-- ARGV[2] = limit
