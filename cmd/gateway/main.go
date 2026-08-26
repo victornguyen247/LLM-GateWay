@@ -117,7 +117,7 @@ func main() {
 	//}
 	size := 1000
 	ttl := 1 * time.Hour
-	cache, err := cache.NewCache( size, ttl)
+	cache, err := cache.NewInMemoryCache( size, ttl)
 	if err != nil || cache == nil {
 		logger.Error("Failed to create cache", "error", err)
 		os.Exit(1)

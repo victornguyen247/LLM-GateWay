@@ -56,7 +56,7 @@ func RateLimitMiddleware(mgr ratelimit.Limiter) func(http.Handler) http.Handler 
 	}
 }
 
-func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
+func CacheMiddleware(c cache.Cache) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
 			body, err := io.ReadAll(r.Body)
@@ -76,7 +76,11 @@ func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
 			key_bytes := []byte(r.Method + ":" + r.URL.Path + ":" + string(body))
 			key := cache.HashRequest(key_bytes)
 			// check if the entry is in the cache
-			entry, found := c.Get(key)
+			entry, found, err := c.Get(r.Context(), key)
+			if err != nil {
+				http.Error(w, "Failed to get entry from cache", http.StatusInternalServerError)
+				return
+			}
 			if found { // cache hit
 				w.Header().Set("Content-Type", entry.ContentType)
 				w.Header().Set("X-Cache", "HIT") // set the cache header to hit
@@ -95,7 +99,7 @@ func CacheMiddleware(c *cache.Cache) func(http.Handler) http.Handler {
 			bufw := &bufWriter{ResponseWriter: w}
 			next.ServeHTTP(bufw, r)
 			if bufw.status >= 200 && bufw.status < 300 {
-				c.Set(key, cache.Entry{
+				c.Set(r.Context(), key, cache.Entry{
 					Body: bufw.buf.Bytes(),
 					ContentType: bufw.Header().Get("Content-Type"),
 					Status: bufw.status,

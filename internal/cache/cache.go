@@ -4,10 +4,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"context"
 	"time"
 	"github.com/hashicorp/golang-lru/v2"
 	"net/http"
 )
+
+// define Cache interface
+type Cache interface {
+	Get(ctx context.Context, key string) (Entry, bool, error)
+	Set(ctx context.Context, key string, entry Entry) error
+}
 
 // Entry is a struct that represents an entry in the cache
 type Entry struct {
@@ -19,27 +26,27 @@ type Entry struct {
 }
 
 // Cache is a thread-safe in-memory cache
-type Cache struct {
+type InMemoryCache struct {
 	lru *lru.Cache[string,Entry] // lru cache to store the entries
 	ttl time.Duration // TTL for the entries
 }
 
-// NewCache creates a new cache
-func NewCache(size int, ttl time.Duration) (*Cache, error) {
+// NewInMemoryCache creates a new in-memory cache
+func NewInMemoryCache(size int, ttl time.Duration) (*InMemoryCache, error) {
 	// create a new lru cache
 	lru, err := lru.New[string,Entry](size)
 	if err != nil {
 		return nil, err
 	}
 	// return a new cache
-	return &Cache{
+	return &InMemoryCache{
 		lru: lru,
 		ttl: ttl,
 	}, nil
 }
 
 // Get retrieves an entry from the cache
-func (c *Cache) Get(key string) (Entry, bool, error) {
+func (c *InMemoryCache) Get(ctx context.Context, key string) (Entry, bool, error) {
 	if val, exists := c.lru.Get(key); exists {
 		// check if the entry is expired
 		if time.Now().After(val.ExpiresAt) {
@@ -52,7 +59,7 @@ func (c *Cache) Get(key string) (Entry, bool, error) {
 }
 
 // Set adds an entry to the cache
-func (c *Cache) Set(key string, entry Entry) error {
+func (c *InMemoryCache) Set(ctx context.Context, key string, entry Entry) error {
 	// check if the TTL is valid
 	if c.ttl > 0 {
 		// add the entry to the cache
