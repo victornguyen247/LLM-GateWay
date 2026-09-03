@@ -18,12 +18,7 @@ import (
 // newLimiter builds the configured rate limiter backend. RATE_LIMIT_BACKEND
 // selects "memory" (default) or "redis"; the redis backend connects to
 // REDIS_URL.
-func newLimiter(logger *slog.Logger) ratelimit.Limiter {
-	backend := os.Getenv("RATE_LIMIT_BACKEND")
-	if backend == "" {
-		backend = "memory"
-	}
-
+func newLimiter(logger *slog.Logger,  rps float64, burst int, backend string, redisClient *redis.Client) ratelimit.Limiter {
 	switch backend {
 	case "redis":
 		redisURL := os.Getenv("REDIS_URL")
@@ -32,7 +27,7 @@ func newLimiter(logger *slog.Logger) ratelimit.Limiter {
 			logger.Error("Failed to parse REDIS_URL", "error", err)
 			os.Exit(1)
 		}
-		client := redis.NewClient(opts)
+		client := redisClient != nil ? redisClient : redis.NewClient(opts)
 		if err := client.Ping(context.Background()).Err(); err != nil {
 			logger.Error("Failed to connect to Redis", "error", err)
 			os.Exit(1)
@@ -92,16 +87,16 @@ func newLimiter(logger *slog.Logger) ratelimit.Limiter {
 	}
 }
 
-func newCache(logger *slog.Logger, size int, ttl time.Duration) cache.Cache {
+func newCache(logger *slog.Logger, size int, ttl time.Duration, redisClient *redis.Client) cache.Cache {
 	cacheBackend := os.Getenv("CACHE_BACKEND")
-	if cacheBackend == "redis" {
+	if cacheBackend == "redis" && redisClient != nil {
 		redisURL := os.Getenv("REDIS_URL")
 		opts, err := redis.ParseURL(redisURL)
 		if err != nil {
 			logger.Error("Failed to parse REDIS_URL", "error", err)
 			os.Exit(1)
 		}
-		client := redis.NewClient(opts)
+		client := redisClient != nil ? redisClient : redis.NewClient(opts)
 		if err := client.Ping(context.Background()).Err(); err != nil {
 			logger.Error("Failed to connect to Redis", "error", err)
 			os.Exit(1)
@@ -131,9 +126,23 @@ func newCache(logger *slog.Logger, size int, ttl time.Duration) cache.Cache {
 func main() {
 	// create the logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
 
-	limiter := newLimiter(logger)
-	cache := newCache(logger, 1000, 1*time.Hour)
+	rps := os.Getenv("RATE_LIMIT_RPS") != "" ? strconv.ParseFloat(os.Getenv("RATE_LIMIT_RPS"), 64) : 2.0	
+	burst := os.Getenv("RATE_LIMIT_BURST") != "" ? strconv.Atoi(os.Getenv("RATE_LIMIT_BURST")) : 2
+	rateLimitBackend := os.Getenv("RATE_LIMIT_BACKEND") != "" ? os.Getenv("RATE_LIMIT_BACKEND") : "memory"
+	rateLimitBackend := os.Getenv("RATE_LIMIT_BACKEND") != "" ? os.Getenv("RATE_LIMIT_BACKEND") : "memory"
+
+	cacheBackend := os.Getenv("CACHE_BACKEND") != "" ? os.Getenv("CACHE_BACKEND") : "memory"
+	cacheSize := os.Getenv("CACHE_SIZE") != "" ? strconv.Atoi(os.Getenv("CACHE_SIZE")) : 1000
+	cacheTTL := os.Getenv("CACHE_TTL") != "" ? time.ParseDuration(os.Getenv("CACHE_TTL")) : 1*time.Hour
+	var redisClient *redis.Client
+	if rateLimitBackend == "redis" || cacheBackend == "redis" {
+		redisClient = redis.NewClient(opts)
+	}
+
+	limiter := newLimiter(logger, rps, burst, rateLimitBackend, redisClient)
+	cache := newCache(logger, cacheSize, cacheTTL, redisClient)
 
 	// create the server
 	gateway_listen := ":8080"

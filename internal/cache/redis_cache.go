@@ -5,6 +5,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const RedisCachePrefix = "cache:"
+
 type RedisCache struct {
 	client *redis.Client
 	ttl time.Duration
@@ -15,13 +17,13 @@ func NewRedisCache(client *redis.Client, ttl time.Duration) *RedisCache {
 }
 
 func (c *RedisCache) Get(ctx context.Context, key string) (Entry, bool, error) {
-	redisKey := "cache:" + key
+	redisKey := RedisCachePrefix + key
 	val, err := c.client.Get(ctx, redisKey).Bytes()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return Entry{}, false, nil
+		}
 		return Entry{}, false, err
-	}
-	if errors.Is(err, redis.Nil) {
-		return Entry{}, false, nil
 	}
 	entry := Entry{}
 	err = json.Unmarshal([]byte(val), &entry)
@@ -32,7 +34,10 @@ func (c *RedisCache) Get(ctx context.Context, key string) (Entry, bool, error) {
 }
 
 func (c *RedisCache) Set(ctx context.Context, key string, entry Entry) error {
-	redisKey := "cache:" + key
+	if c.ttl <= 0 {
+		return errors.New("ttl must be greater than 0")
+	}
+	redisKey := RedisCachePrefix + key
 	val, err := json.Marshal(entry)
 	if err != nil {
 		return err

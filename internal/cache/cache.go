@@ -33,6 +33,9 @@ type MemoryCache struct {
 
 // NewMemoryCache creates a new memory cache
 func NewMemoryCache(size int, ttl time.Duration) (*MemoryCache, error) {
+	if ttl <= 0 {
+		return nil, errors.New("ttl must be greater than 0")
+	}
 	// create a new lru cache
 	lru, err := lru.New[string,Entry](size)
 	if err != nil {
@@ -74,11 +77,11 @@ func (c *MemoryCache) Set(ctx context.Context, key string, entry Entry) error {
 }
 
 // HashRequest hashes the request body using SHA-256 and returns the hex encoded string
-func HashRequest(ctx context.Context, body []byte) string {
+func HashRequest(body []byte) string {
 	// create a new SHA-256 hash
 	hash := sha256.New()
 	// write the body to the hash
-	hash.Write(ctx, body)
+	hash.Write(body)
 	// encode the hash to a hex string
-	return hex.EncodeToString(hash.Sum(ctx, nil))
+	return hex.EncodeToString(hash.Sum(nil))
 }
