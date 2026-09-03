@@ -8,14 +8,14 @@ import (
 	"time"
 	"github.com/hashicorp/golang-lru/v2"
 	"net/http"
+	"context"
 )
 
-// define Cache interface
+// Cache is a thread-safe cache interface
 type Cache interface {
 	Get(ctx context.Context, key string) (Entry, bool, error)
 	Set(ctx context.Context, key string, entry Entry) error
 }
-
 // Entry is a struct that represents an entry in the cache
 type Entry struct {
 	Body []byte // the body of the entry
@@ -26,27 +26,27 @@ type Entry struct {
 }
 
 // Cache is a thread-safe in-memory cache
-type InMemoryCache struct {
+type MemoryCache struct {
 	lru *lru.Cache[string,Entry] // lru cache to store the entries
 	ttl time.Duration // TTL for the entries
 }
 
-// NewInMemoryCache creates a new in-memory cache
-func NewInMemoryCache(size int, ttl time.Duration) (*InMemoryCache, error) {
+// NewMemoryCache creates a new memory cache
+func NewMemoryCache(size int, ttl time.Duration) (*MemoryCache, error) {
 	// create a new lru cache
 	lru, err := lru.New[string,Entry](size)
 	if err != nil {
 		return nil, err
 	}
 	// return a new cache
-	return &InMemoryCache{
+	return &MemoryCache{
 		lru: lru,
 		ttl: ttl,
 	}, nil
 }
 
 // Get retrieves an entry from the cache
-func (c *InMemoryCache) Get(ctx context.Context, key string) (Entry, bool, error) {
+func (c *MemoryCache) Get(ctx context.Context, key string) (Entry, bool, error) {
 	if val, exists := c.lru.Get(key); exists {
 		// check if the entry is expired
 		if time.Now().After(val.ExpiresAt) {
@@ -59,7 +59,7 @@ func (c *InMemoryCache) Get(ctx context.Context, key string) (Entry, bool, error
 }
 
 // Set adds an entry to the cache
-func (c *InMemoryCache) Set(ctx context.Context, key string, entry Entry) error {
+func (c *MemoryCache) Set(ctx context.Context, key string, entry Entry) error {
 	// check if the TTL is valid
 	if c.ttl > 0 {
 		// add the entry to the cache
@@ -74,11 +74,11 @@ func (c *InMemoryCache) Set(ctx context.Context, key string, entry Entry) error 
 }
 
 // HashRequest hashes the request body using SHA-256 and returns the hex encoded string
-func HashRequest(body []byte) string {
+func HashRequest(ctx context.Context, body []byte) string {
 	// create a new SHA-256 hash
 	hash := sha256.New()
 	// write the body to the hash
-	hash.Write(body)
+	hash.Write(ctx, body)
 	// encode the hash to a hex string
-	return hex.EncodeToString(hash.Sum(nil))
+	return hex.EncodeToString(hash.Sum(ctx, nil))
 }

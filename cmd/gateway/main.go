@@ -92,36 +92,48 @@ func newLimiter(logger *slog.Logger) ratelimit.Limiter {
 	}
 }
 
+func newCache(logger *slog.Logger, size int, ttl time.Duration) cache.Cache {
+	cacheBackend := os.Getenv("CACHE_BACKEND")
+	if cacheBackend == "redis" {
+		redisURL := os.Getenv("REDIS_URL")
+		opts, err := redis.ParseURL(redisURL)
+		if err != nil {
+			logger.Error("Failed to parse REDIS_URL", "error", err)
+			os.Exit(1)
+		}
+		client := redis.NewClient(opts)
+		if err := client.Ping(context.Background()).Err(); err != nil {
+			logger.Error("Failed to connect to Redis", "error", err)
+			os.Exit(1)
+		}
+		cache := cache.NewRedisCache(client, ttl)
+		if err := cache.Ping(context.Background()).Err(); err != nil {
+			logger.Error("Failed to connect to Redis", "error", err)
+			os.Exit(1)
+		}
+		return cache
+	}
+	else if cacheBackend == "memory" {
+		cache, err := cache.NewMemoryCache(size, ttl)
+		if err != nil {
+			logger.Error("Failed to create memory cache", "error", err)
+			os.Exit(1)
+		}
+		return cache
+	} else {
+		logger.Error("unknown CACHE_BACKEND", "backend", cacheBackend)
+		os.Exit(1)
+		return nil
+	}
+
+}
+
 func main() {
 	// create the logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	// load the environment variables
-	/*if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		logger.Error("Failed to load environment variables", "error", err)
-		os.Exit(1)
-	}*/
-
 	limiter := newLimiter(logger)
-
-	// create the cache
-	//size, err := strconv.Atoi(os.Getenv("CACHE_SIZE"))
-	//if err != nil {
-	//	logger.Error("Failed to parse CACHE_SIZE", "error", err)
-	//	os.Exit(1)
-	//}
-	//ttl, err := time.ParseDuration(os.Getenv("CACHE_TTL"))
-	//if err != nil {
-	//	logger.Error("Failed to parse CACHE_TTL", "error", err)
-	//	os.Exit(1)
-	//}
-	size := 1000
-	ttl := 1 * time.Hour
-	cache, err := cache.NewInMemoryCache( size, ttl)
-	if err != nil || cache == nil {
-		logger.Error("Failed to create cache", "error", err)
-		os.Exit(1)
-	}
+	cache := newCache(logger, 1000, 1*time.Hour)
 
 	// create the server
 	gateway_listen := ":8080"
