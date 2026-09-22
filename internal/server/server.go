@@ -55,8 +55,10 @@ func (s *Server) registerRoutes(){
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	// forward Gemini /v1beta/* endpoints (generateContent, etc.)
-	s.mux.Handle("/v1/chat/completions", CacheMiddleware(s.cache)(RateLimitMiddleware(s.mgr)(http.HandlerFunc(s.proxy.Handle))))
+	// Pipeline: rate limit → cache → proxy (outermost → innermost).
+	s.mux.Handle("/v1/chat/completions",
+		RateLimitMiddleware(s.mgr)(CacheMiddleware(s.cache)(http.HandlerFunc(s.proxy.Handle))),
+	)
 }
 
 // Function to start the server

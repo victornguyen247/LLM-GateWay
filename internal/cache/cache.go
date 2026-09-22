@@ -1,87 +1,72 @@
 package cache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"context"
-	"time"
-	"github.com/hashicorp/golang-lru/v2"
 	"net/http"
-	"context"
+	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-// Cache is a thread-safe cache interface
+// Cache is the interface all cache backends satisfy.
+//
+// Get returns (entry, true, nil) on hit, (Entry{}, false, nil) on miss,
+// and (Entry{}, false, err) on backend error. Middleware treats err as a
+// miss but should log it.
 type Cache interface {
 	Get(ctx context.Context, key string) (Entry, bool, error)
 	Set(ctx context.Context, key string, entry Entry) error
 }
-// Entry is a struct that represents an entry in the cache
+
+// Entry is a cached response.
 type Entry struct {
-	Body []byte // the body of the entry
-	ContentType string // the content type of the entry
-	ExpiresAt time.Time // the expiration time of the entry
-	Status int // the status code of the entry
-	Headers http.Header // the headers of the entry
+	Body        []byte
+	ContentType string
+	ExpiresAt   time.Time // Used by MemoryCache; ignored by RedisCache (Redis handles TTL).
+	Status      int
+	Headers     http.Header
 }
 
-// Cache is a thread-safe in-memory cache
+// MemoryCache is an in-process LRU cache with per-entry TTL.
 type MemoryCache struct {
-	lru *lru.Cache[string,Entry] // lru cache to store the entries
-	ttl time.Duration // TTL for the entries
+	lru *lru.Cache[string, Entry]
+	ttl time.Duration
 }
 
-// NewMemoryCache creates a new memory cache
 func NewMemoryCache(size int, ttl time.Duration) (*MemoryCache, error) {
 	if ttl <= 0 {
-		return nil, errors.New("ttl must be greater than 0")
+		return nil, errors.New("ttl must be positive")
 	}
-	// create a new lru cache
-	lru, err := lru.New[string,Entry](size)
+	l, err := lru.New[string, Entry](size)
 	if err != nil {
 		return nil, err
 	}
-	// return a new cache
-	return &MemoryCache{
-		lru: lru,
-		ttl: ttl,
-	}, nil
+	return &MemoryCache{lru: l, ttl: ttl}, nil
 }
 
-// Get retrieves an entry from the cache
-func (c *MemoryCache) Get(ctx context.Context, key string) (Entry, bool, error) {
-	if val, exists := c.lru.Get(key); exists {
-		// check if the entry is expired
-		if time.Now().After(val.ExpiresAt) {
-			c.lru.Remove(key)
-			return Entry{}, false, errors.New("entry expired")
-		}
-		return val, true, nil
+func (c *MemoryCache) Get(_ context.Context, key string) (Entry, bool, error) {
+	val, exists := c.lru.Get(key)
+	if !exists {
+		return Entry{}, false, nil
 	}
-	return Entry{}, false, errors.New("entry not found")
-}
-
-// Set adds an entry to the cache
-func (c *MemoryCache) Set(ctx context.Context, key string, entry Entry) error {
-	// check if the TTL is valid
-	if c.ttl > 0 {
-		// add the entry to the cache
-		entry.ExpiresAt = time.Now().Add(c.ttl)
-		if ok := c.lru.Add(key, entry); !ok {
-			return errors.New("failed to add to cache")
-		}
-		return nil
+	if time.Now().After(val.ExpiresAt) {
+		c.lru.Remove(key)
+		return Entry{}, false, nil
 	}
-	// return an error if the TTL is not valid
-    return errors.New("ttl is not valid")
+	return val, true, nil
 }
 
-// HashRequest hashes the request body using SHA-256 and returns the hex encoded string
+func (c *MemoryCache) Set(_ context.Context, key string, entry Entry) error {
+	entry.ExpiresAt = time.Now().Add(c.ttl)
+	c.lru.Add(key, entry)
+	return nil
+}
+
+// HashRequest returns the hex-encoded SHA-256 of body.
 func HashRequest(body []byte) string {
-	// create a new SHA-256 hash
-	hash := sha256.New()
-	// write the body to the hash
-	hash.Write(body)
-	// encode the hash to a hex string
-	return hex.EncodeToString(hash.Sum(nil))
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }

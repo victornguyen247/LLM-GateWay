@@ -1,173 +1,143 @@
 package main
+
 import (
+	"context"
 	"log/slog"
 	"os"
-	// "github.com/joho/godotenv"
-	"github.com/victornguyen247/LLM-GateWay/internal/server"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/victornguyen247/LLM-GateWay/internal/cache"
 	"github.com/victornguyen247/LLM-GateWay/internal/proxy"
 	"github.com/victornguyen247/LLM-GateWay/internal/ratelimit"
-	"github.com/victornguyen247/LLM-GateWay/internal/cache"
-	"github.com/redis/go-redis/v9"
-	"strconv"
-	"time"
-	"context"
-	"syscall"
-	"os/signal"
+	"github.com/victornguyen247/LLM-GateWay/internal/server"
 )
 
-// newLimiter builds the configured rate limiter backend. RATE_LIMIT_BACKEND
-// selects "memory" (default) or "redis"; the redis backend connects to
-// REDIS_URL.
-func newLimiter(logger *slog.Logger,  rps float64, burst int, backend string, redisClient *redis.Client) ratelimit.Limiter {
-	switch backend {
-	case "redis":
-		redisURL := os.Getenv("REDIS_URL")
-		opts, err := redis.ParseURL(redisURL)
-		if err != nil {
-			logger.Error("Failed to parse REDIS_URL", "error", err)
-			os.Exit(1)
-		}
-		client := redisClient != nil ? redisClient : redis.NewClient(opts)
-		if err := client.Ping(context.Background()).Err(); err != nil {
-			logger.Error("Failed to connect to Redis", "error", err)
-			os.Exit(1)
-		}
-
-		window := time.Second
-		if w := os.Getenv("RATE_LIMIT_WINDOW"); w != "" {
-			parsed, err := time.ParseDuration(w)
-			if err != nil {
-				logger.Error("Failed to parse RATE_LIMIT_WINDOW", "error", err)
-				os.Exit(1)
-			}
-			window = parsed
-		}
-
-		limit := 2
-		if l := os.Getenv("RATE_LIMIT_LIMIT"); l != "" {
-			parsed, err := strconv.Atoi(l)
-			if err != nil {
-				logger.Error("Failed to parse RATE_LIMIT_LIMIT", "error", err)
-				os.Exit(1)
-			}
-			limit = parsed
-		}
-
-		logger.Info("rate limiter backend: redis", "redis_url", redisURL, "window", window, "limit", limit)
-		return ratelimit.NewRedisLimiter(client, window, limit)
-
-	case "memory":
-		rps := 2.0
-		if r := os.Getenv("RATE_LIMIT_RPS"); r != "" {
-			parsed, err := strconv.ParseFloat(r, 64)
-			if err != nil {
-				logger.Error("Failed to parse RATE_LIMIT_RPS", "error", err)
-				os.Exit(1)
-			}
-			rps = parsed
-		}
-
-		burst := 2
-		if b := os.Getenv("RATE_LIMIT_BURST"); b != "" {
-			parsed, err := strconv.Atoi(b)
-			if err != nil {
-				logger.Error("Failed to parse RATE_LIMIT_BURST", "error", err)
-				os.Exit(1)
-			}
-			burst = parsed
-		}
-
-		logger.Info("rate limiter backend: memory", "rps", rps, "burst", burst)
-		return ratelimit.NewManager(rps, burst)
-
-	default:
-		logger.Error("unknown RATE_LIMIT_BACKEND", "backend", backend)
-		os.Exit(1)
-		return nil
-	}
-}
-
-func newCache(logger *slog.Logger, size int, ttl time.Duration, redisClient *redis.Client) cache.Cache {
-	cacheBackend := os.Getenv("CACHE_BACKEND")
-	if cacheBackend == "redis" && redisClient != nil {
-		redisURL := os.Getenv("REDIS_URL")
-		opts, err := redis.ParseURL(redisURL)
-		if err != nil {
-			logger.Error("Failed to parse REDIS_URL", "error", err)
-			os.Exit(1)
-		}
-		client := redisClient != nil ? redisClient : redis.NewClient(opts)
-		if err := client.Ping(context.Background()).Err(); err != nil {
-			logger.Error("Failed to connect to Redis", "error", err)
-			os.Exit(1)
-		}
-		cache := cache.NewRedisCache(client, ttl)
-		if err := cache.Ping(context.Background()).Err(); err != nil {
-			logger.Error("Failed to connect to Redis", "error", err)
-			os.Exit(1)
-		}
-		return cache
-	}
-	else if cacheBackend == "memory" {
-		cache, err := cache.NewMemoryCache(size, ttl)
-		if err != nil {
-			logger.Error("Failed to create memory cache", "error", err)
-			os.Exit(1)
-		}
-		return cache
-	} else {
-		logger.Error("unknown CACHE_BACKEND", "backend", cacheBackend)
-		os.Exit(1)
-		return nil
-	}
-
-}
-
 func main() {
-	// create the logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	rps := os.Getenv("RATE_LIMIT_RPS") != "" ? strconv.ParseFloat(os.Getenv("RATE_LIMIT_RPS"), 64) : 2.0	
-	burst := os.Getenv("RATE_LIMIT_BURST") != "" ? strconv.Atoi(os.Getenv("RATE_LIMIT_BURST")) : 2
-	rateLimitBackend := os.Getenv("RATE_LIMIT_BACKEND") != "" ? os.Getenv("RATE_LIMIT_BACKEND") : "memory"
-	rateLimitBackend := os.Getenv("RATE_LIMIT_BACKEND") != "" ? os.Getenv("RATE_LIMIT_BACKEND") : "memory"
+	rps := envFloat("RATE_LIMIT_RPS", 2.0)
+	burst := envInt("RATE_LIMIT_BURST", 2)
+	rateLimitBackend := envString("RATE_LIMIT_BACKEND", "memory")
 
-	cacheBackend := os.Getenv("CACHE_BACKEND") != "" ? os.Getenv("CACHE_BACKEND") : "memory"
-	cacheSize := os.Getenv("CACHE_SIZE") != "" ? strconv.Atoi(os.Getenv("CACHE_SIZE")) : 1000
-	cacheTTL := os.Getenv("CACHE_TTL") != "" ? time.ParseDuration(os.Getenv("CACHE_TTL")) : 1*time.Hour
+	cacheBackend := envString("CACHE_BACKEND", "memory")
+	cacheSize := envInt("CACHE_SIZE", 1000)
+	cacheTTL := envDuration("CACHE_TTL", 1*time.Hour)
+
+	// One Redis client, shared by any backend that wants it. Fail loudly at boot
+	// so misconfiguration doesn't surface on the first request.
 	var redisClient *redis.Client
 	if rateLimitBackend == "redis" || cacheBackend == "redis" {
+		redisURL := envString("REDIS_URL", "redis://localhost:6379")
+		opts, err := redis.ParseURL(redisURL)
+		if err != nil {
+			logger.Error("invalid REDIS_URL", "error", err)
+			os.Exit(1)
+		}
 		redisClient = redis.NewClient(opts)
+		if err := redisClient.Ping(context.Background()).Err(); err != nil {
+			logger.Error("redis ping failed", "error", err)
+			os.Exit(1)
+		}
 	}
 
-	limiter := newLimiter(logger, rps, burst, rateLimitBackend, redisClient)
-	cache := newCache(logger, cacheSize, cacheTTL, redisClient)
+	var c cache.Cache
+	switch cacheBackend {
+	case "memory", "":
+		mc, err := cache.NewMemoryCache(cacheSize, cacheTTL)
+		if err != nil {
+			logger.Error("failed to create memory cache", "error", err)
+			os.Exit(1)
+		}
+		c = mc
+		logger.Info("cache backend: memory", "size", cacheSize, "ttl", cacheTTL)
+	case "redis":
+		c = cache.NewRedisCache(redisClient, cacheTTL)
+		logger.Info("cache backend: redis", "ttl", cacheTTL)
+	default:
+		logger.Error("unknown CACHE_BACKEND", "value", cacheBackend)
+		os.Exit(1)
+	}
 
-	// create the server
-	gateway_listen := ":8080"
-	openai_upstream_url := "https://api.openai.com"
+	var lim ratelimit.Limiter
+	switch rateLimitBackend {
+	case "memory", "":
+		lim = ratelimit.NewManager(rps, burst)
+		logger.Info("rate limiter backend: memory", "rps", rps, "burst", burst)
+	case "redis":
+		window := envDuration("RATE_LIMIT_WINDOW", time.Second)
+		limit := envInt("RATE_LIMIT_LIMIT", int(rps))
+		lim = ratelimit.NewRedisLimiter(redisClient, window, limit)
+		logger.Info("rate limiter backend: redis", "window", window, "limit", limit)
+	default:
+		logger.Error("unknown RATE_LIMIT_BACKEND", "value", rateLimitBackend)
+		os.Exit(1)
+	}
+
+	upstreamURL := envString("OPENAI_UPSTREAM_URL", "https://api.openai.com")
+	listen := envString("GATEWAY_LISTEN", ":8080")
+
 	s := server.NewServer(
-		gateway_listen, //os.Getenv("GATEWAY_LISTEN"),
+		listen,
 		logger,
-		proxy.NewOpenAIProxy(openai_upstream_url, os.Getenv("OPENAI_API_KEY"), logger), //os.Getenv("OPENAI_UPSTREAM_URL"), os.Getenv("OPENAI_API_KEY"), logger),
-		limiter,
-		cache)
+		proxy.NewOpenAIProxy(upstreamURL, os.Getenv("OPENAI_API_KEY"), logger),
+		lim,
+		c,
+	)
 
-	// create the context and stop function
-    ctx , stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-    // start the server
+
 	go func() {
-		if err := s.Run(); err != nil{
-			logger.Error("Failed to start server", "error", err)
+		if err := s.Run(); err != nil {
+			logger.Error("server failed", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-    // wait for the signal
 	<-ctx.Done()
-	s.Shutdown(ctx)
-	logger.Info("gracefully shutting down server")
-	os.Exit(0)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.Shutdown(shutdownCtx); err != nil {
+		logger.Error("shutdown error", "error", err)
+	}
+	logger.Info("gracefully shut down")
+}
+
+func envString(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func envFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func envDuration(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return def
 }
