@@ -1,51 +1,70 @@
 package cache
 
 import (
+	"context"
 	"testing"
 	"time"
 )
 
-func TestCache_SetAndGet(t *testing.T) {
-	c, err := NewCache(10, time.Minute)
+func TestMemoryCache_SetAndGet(t *testing.T) {
+	c, err := NewMemoryCache(10, time.Minute)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewMemoryCache: %v", err)
+	}
+	ctx := context.Background()
+
+	want := Entry{
+		Body:        []byte(`{"hello":"world"}`),
+		ContentType: "application/json",
+		Status:      200,
+	}
+	if err := c.Set(ctx, "k1", want); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 
-	want := entry{
-		body:        []byte(`{"hello":"world"}`),
-		contentType: "application/json",
+	got, found, err := c.Get(ctx, "k1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	c.Set("k1", want)
-
-	got, ok := c.Get("k1")
-	if !ok {
+	if !found {
 		t.Fatal("expected hit, got miss")
 	}
-	if string(got.body) != string(want.body) {
-		t.Errorf("body mismatch: got %q, want %q", got.body, want.body)
+	if string(got.Body) != string(want.Body) {
+		t.Errorf("body mismatch: got %q, want %q", got.Body, want.Body)
 	}
-	if got.contentType != want.contentType {
-		t.Errorf("contentType mismatch: got %q, want %q", got.contentType, want.contentType)
+	if got.ContentType != want.ContentType {
+		t.Errorf("contentType mismatch: got %q, want %q", got.ContentType, want.ContentType)
 	}
 }
 
-func TestCache_Miss(t *testing.T) {
-	c, _ := NewCache(10, time.Minute)
-	if _, ok := c.Get("nope"); ok {
+func TestMemoryCache_Miss(t *testing.T) {
+	c, _ := NewMemoryCache(10, time.Minute)
+	_, found, err := c.Get(context.Background(), "nope")
+	if err != nil {
+		t.Fatalf("expected clean miss, got err=%v", err)
+	}
+	if found {
 		t.Error("expected miss for unknown key")
 	}
 }
 
-func TestCache_Expiration(t *testing.T) {
-	c, err := NewCache(10, 1*time.Nanosecond)
+func TestMemoryCache_Expiration(t *testing.T) {
+	c, err := NewMemoryCache(10, time.Millisecond)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewMemoryCache: %v", err)
 	}
+	ctx := context.Background()
 
-	c.Set("k1", entry{body: []byte("data"), contentType: "text/plain"})
-	time.Sleep(5 * time.Millisecond) // well past the 1ns TTL
+	if err := c.Set(ctx, "k1", Entry{Body: []byte("data"), ContentType: "text/plain", Status: 200}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
 
-	if _, ok := c.Get("k1"); ok {
+	_, found, err := c.Get(ctx, "k1")
+	if err != nil {
+		t.Fatalf("expected clean miss after expiry, got err=%v", err)
+	}
+	if found {
 		t.Error("expected miss after expiration")
 	}
 }
@@ -53,15 +72,15 @@ func TestCache_Expiration(t *testing.T) {
 func TestHashRequest(t *testing.T) {
 	body := []byte(`{"prompt":"hi"}`)
 
-	h1 := hashRequest(body)
-	h2 := hashRequest(body)
+	h1 := HashRequest(body)
+	h2 := HashRequest(body)
 	if h1 != h2 {
 		t.Errorf("hash not deterministic: %s vs %s", h1, h2)
 	}
 	if len(h1) != 64 {
 		t.Errorf("expected 64-char sha256 hex, got %d", len(h1))
 	}
-	if hashRequest([]byte("different")) == h1 {
+	if HashRequest([]byte("different")) == h1 {
 		t.Error("expected different hash for different input")
 	}
 }

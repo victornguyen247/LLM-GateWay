@@ -23,11 +23,11 @@ type Server struct {
 	// rate limiter to limit the requests
 	mgr ratelimit.Limiter
 	// cache to cache the responses
-	cache *cache.Cache
+	cache cache.Cache
 }
 
 // Function to create a new server
-func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy, mgr ratelimit.Limiter, c *cache.Cache) *Server {
+func NewServer(addr string, logger *slog.Logger, proxy proxy.Proxy, mgr ratelimit.Limiter, c cache.Cache) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
@@ -55,8 +55,10 @@ func (s *Server) registerRoutes(){
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	// forward Gemini /v1beta/* endpoints (generateContent, etc.)
-	s.mux.Handle("/v1/chat/completions", CacheMiddleware(s.cache)(RateLimitMiddleware(s.mgr)(http.HandlerFunc(s.proxy.Handle))))
+	// Pipeline: rate limit → cache → proxy (outermost → innermost).
+	s.mux.Handle("/v1/chat/completions",
+		RateLimitMiddleware(s.mgr)(CacheMiddleware(s.cache)(http.HandlerFunc(s.proxy.Handle))),
+	)
 }
 
 // Function to start the server
