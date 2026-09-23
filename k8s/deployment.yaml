@@ -16,9 +16,9 @@ spec:
     
     spec:
       containers:
-      - name: llm-gateway
-        image: llm-gateway:v0.1
-        imagePullPolicy: IfNotPresent
+      - name: gateway
+        image: gateway:v1
+        imagePullPolicy: Always
         
         ports:
           - containerPort: 8080
@@ -28,9 +28,10 @@ spec:
             name: gateway-secret
 
         env:
-        - name: OPENAI_API_KEY
-        - name: GATEWAY_LISTEN
-          value: "8080"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
             
         resources:
           requests:
@@ -45,12 +46,12 @@ spec:
           httpGet:
             path: /health
             port: 8080
-          initialDelaySeconds: 30
+          initialDelaySeconds: 5
           periodSeconds: 10
         
         readinessProbe:
           httpGet:
             path: /health
             port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 2
+          periodSeconds: 5
