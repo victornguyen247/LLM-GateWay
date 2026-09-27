@@ -18,6 +18,9 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if podName := os.Getenv("POD_NAME"); podName != "" {
+		logger = logger.With("pod", podName)
+	}
 	slog.SetDefault(logger)
 
 	rps := envFloat("RATE_LIMIT_RPS", 2.0)
